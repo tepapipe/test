@@ -2450,9 +2450,8 @@ function formatHistoryDetails(entry, bookings = []) {
         ${services ? `<strong>Services:</strong> ${escapeHtml(services)}<br>` : ''}
         ${addOns ? `<strong>Add-ons:</strong> ${addOns}<br>` : ''}
         ${total ? `<strong>Subtotal:</strong> ${formatCurrency(total)}<br>` : ''}
-        <strong>Booking Fee:</strong> ${formatCurrency(bookingFee)}<br>
         ${balance ? `<strong>Balance on Visit:</strong> ${formatCurrency(balance)}<br>` : ''}
-        ${cost?.totalAmount ? `<strong>Total Amount:</strong> ${formatCurrency(cost.totalAmount)}` : total ? `<strong>Total Amount:</strong> ${formatCurrency(total + bookingFee)}` : ''}
+        ${cost?.totalAmount ? `<strong>Total Amount:</strong> ${formatCurrency(cost.totalAmount)}` : total ? `<strong>Total Amount:</strong> ${formatCurrency(total)}` : ''}
       </div>
     `;
   }
@@ -3323,7 +3322,7 @@ async function updateWalkInSummary() {
         <div style="margin-bottom: 0.5rem;"><strong>Booking Fee (must pay to approve):</strong> ${formatCurrency(costEstimate.bookingFee)}</div>
         <div style="margin-bottom: 0.5rem;"><strong>Balance on Visit:</strong> ${formatCurrency(costEstimate.balanceOnVisit)}</div>
         <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--gray-200); font-weight: 600;">
-          <strong>Total Amount:</strong> ${formatCurrency(costEstimate.totalAmount || (costEstimate.subtotal + costEstimate.bookingFee))}
+          <strong>Total Amount:</strong> ${formatCurrency(costEstimate.totalAmount || costEstimate.subtotal)}
         </div>
       `;
       summaryHTML += `</div>`;
@@ -4889,9 +4888,15 @@ window.handleAddAddonToBooking = async function (bookingId) {
   });
 
   // Recalculate total
-  const basePrice = booking.cost?.subtotal || 0;
-  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + addon.price, 0);
-  booking.totalPrice = basePrice + addOnsTotal;
+  const packagePrice = booking.cost?.packagePrice || 0;
+  const servicesTotal = booking.cost?.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
+  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (addon.price || 0), 0);
+  const newSubtotal = packagePrice + servicesTotal + addOnsTotal;
+  
+  // Update cost object
+  if (!booking.cost) booking.cost = {};
+  booking.cost.subtotal = newSubtotal;
+  booking.totalPrice = newSubtotal;
 
   // Save bookings
   await saveBookings(bookings);
@@ -4930,9 +4935,15 @@ window.handleRemoveAddonFromBooking = async function (bookingId, addonIndex) {
   booking.addOns.splice(addonIndex, 1);
 
   // Recalculate total
-  const basePrice = booking.cost?.subtotal || 0;
-  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + addon.price, 0);
-  booking.totalPrice = basePrice + addOnsTotal;
+  const packagePrice = booking.cost?.packagePrice || 0;
+  const servicesTotal = booking.cost?.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
+  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (addon.price || 0), 0);
+  const newSubtotal = packagePrice + servicesTotal + addOnsTotal;
+  
+  // Update cost object
+  if (!booking.cost) booking.cost = {};
+  booking.cost.subtotal = newSubtotal;
+  booking.totalPrice = newSubtotal;
 
   // Save bookings
   await saveBookings(bookings);
@@ -5516,10 +5527,10 @@ async function openPricingBreakdownModal(bookingId) {
   const addOnsTotal = addOnsArray.reduce((sum, addon) => sum + (addon.price || 0), 0);
   const servicesTotal = cost.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
   
-  // Calculate correct total: package + services + add-ons + booking fee
+  // Calculate correct total: package + services + add-ons (booking fee is deductible, not added to total)
   const subtotal = packagePrice + servicesTotal + addOnsTotal;
-  const totalPrice = subtotal + bookingFee;
-  const balanceOnVisit = totalPrice - bookingFee;
+  const totalPrice = subtotal;
+  const balanceOnVisit = subtotal - bookingFee;
 
   const modalContent = `
     <div style="max-width: 500px;">
