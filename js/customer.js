@@ -202,6 +202,11 @@ async function loadQuickStats() {
   const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length;
   const cancelledBookings = bookings.filter(b => cancelledStatuses.includes(b.status)).length;
 
+  // Calculate total spent on confirmed bookings
+  const totalSpent = bookings
+    .filter(b => b.status === 'confirmed' || b.status === 'completed')
+    .reduce((sum, b) => sum + (b.totalPrice || b.cost?.subtotal || 0), 0);
+
   const statsContainer = document.getElementById('quickStats');
   if (statsContainer) {
     statsContainer.innerHTML = `
@@ -224,6 +229,11 @@ async function loadQuickStats() {
         <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">❌</div>
         <div class="stat-value" style="font-size: 2.5rem; color: #d32f2f; font-weight: 700;">${cancelledBookings}</div>
         <div class="stat-label" style="color: var(--gray-700); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px;">CANCELLED</div>
+      </div>
+      <div class="stat-card" style="background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(56, 142, 60, 0.15)); cursor: pointer; border: 2px solid transparent; transition: all 0.3s ease;" onclick="openCustomerSpendingDetailsModal()">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">💰</div>
+        <div class="stat-value" style="font-size: 2.5rem; color: #2e7d32; font-weight: 700;">${formatCurrency(totalSpent)}</div>
+        <div class="stat-label" style="color: var(--gray-700); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px;">TOTAL SPENT</div>
       </div>
     `;
 
@@ -362,6 +372,7 @@ async function renderCustomerBookings() {
             <p><strong>Package:</strong> ${escapeHtml(booking.packageName || 'Custom')}</p>
             <p><strong>Groomer:</strong> ${escapeHtml(booking.groomerName || 'TBD')}</p>
             <p><strong>Schedule:</strong> ${formatDate ? formatDate(booking.date) : booking.date} · ${formatTime ? formatTime(booking.time) : booking.time}</p>
+            <p><strong>Total:</strong> <span style="color: #2e7d32; font-weight: 600;">${typeof formatCurrency === 'function' ? formatCurrency(booking.totalPrice || booking.cost?.subtotal || 0) : `₱${booking.totalPrice || booking.cost?.subtotal || 0}`}</span></p>
           </div>
           <div class="booking-status"><span class="${statusClass}">${escapeHtml(statusLabel)}</span>
             ${canEdit ? `<button onclick="event.stopPropagation(); openBookingEditModal('${booking.id}')">Edit</button>` : ''}
@@ -921,6 +932,7 @@ async function renderCustomerBookingHistory() {
             <th>Booking ID</th>
             <th>Action</th>
             <th>Details</th>
+            <th>Total Price</th>
           </tr>
         </thead>
         <tbody>
@@ -929,6 +941,8 @@ async function renderCustomerBookingHistory() {
       const booking = bookings.find(b => b.id === entry.bookingId);
       const displayId = booking ? (typeof getBookingDisplayCode === 'function' ? getBookingDisplayCode(booking) : booking.id) : entry.bookingId;
       const actionLabel = formatCustomerHistoryAction(entry.action);
+      const totalPrice = booking ? (booking.totalPrice || booking.cost?.subtotal || 0) : 0;
+      const priceDisplay = typeof formatCurrency === 'function' ? formatCurrency(totalPrice) : `₱${totalPrice}`;
       return `
             <tr>
               <td>
@@ -947,6 +961,7 @@ async function renderCustomerBookingHistory() {
               <td>${escapeHtml(displayId)}</td>
               <td>${escapeHtml(actionLabel)}</td>
               <td>${escapeHtml(entry.message || entry.note || '')}</td>
+              <td><button class="btn btn-sm" style="background: #2e7d32; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 0.25rem; cursor: pointer; font-weight: 600;" onclick="openCustomerPricingBreakdownModal('${booking.id}')">${priceDisplay}</button></td>
             </tr>
               `;
     })()}
@@ -1271,8 +1286,19 @@ async function getUserBookings() {
   }
   if (!Array.isArray(allBookings)) allBookings = [];
 
+  // Filter by userId, email, or customerName to match different booking storage methods
   return allBookings
-    .filter(b => b.userId === user.id)
+    .filter(b => {
+      // Match by userId
+      if (b.userId === user.id) return true;
+      // Match by email
+      if (b.email === user.email) return true;
+      // Match by customerName (if user has name field)
+      if (user.name && b.customerName === user.name) return true;
+      // Match by firstName + lastName
+      if (user.firstName && b.customerName && b.customerName.includes(user.firstName)) return true;
+      return false;
+    })
     .sort((a, b) => {
       const da = new Date((a.date || '') + ' ' + (a.time || ''));
       const db = new Date((b.date || '') + ' ' + (b.time || ''));
@@ -1417,3 +1443,260 @@ async function startCancelBooking(bookingId) {
   });
 }
 window.startCancelBooking = startCancelBooking;
+
+
+// Open pricing breakdown modal for customer
+async function openCustomerPricingBreakdownModal(bookingId) {
+  let bookings = [];
+  try {
+    bookings = await getUserBookings();
+  } catch (e) {
+    console.warn('Failed to fetch bookings:', e);
+    return;
+  }
+
+  const booking = bookings.find(b => b.id === bookingId);
+  if (!booking) {
+    alert('Booking not found');
+    return;
+  }
+
+  const cost = booking.cost || {};
+  const bookingFee = cost.bookingFee || 100;
+  
+  // Get the base package price (without add-ons)
+  const packagePrice = cost.packagePrice || 0;
+  
+  // Get add-ons - prioritize booking.addOns since that's where we store them
+  let addOnsArray = [];
+  
+  if (booking.addOns && Array.isArray(booking.addOns) && booking.addOns.length > 0) {
+    // Use booking.addOns (this is where add-ons are stored when added via Manage Add-ons)
+    addOnsArray = booking.addOns.map(addon => {
+      // Handle object format: { name: 'Anti - Tick & Flea (FLIP 1cc) - Per Service', price: 124 }
+      if (typeof addon === 'object' && addon.name && addon.price) {
+        return { label: addon.name, price: addon.price };
+      }
+      // Handle string format: 'toothbrush', 'dematting', etc.
+      if (typeof addon === 'string') {
+        if (addon === 'toothbrush') return { label: 'Toothbrush', price: 25 };
+        if (addon === 'dematting') return { label: 'De-matting', price: 80 };
+        if (addon === 'anti-tick-flea') return { label: 'Anti-Tick & Flea', price: 150 };
+        return { label: addon, price: 0 };
+      }
+      return { label: 'Unknown', price: 0 };
+    });
+  } else if (cost.addOns && Array.isArray(cost.addOns) && cost.addOns.length > 0) {
+    // Fallback to cost.addOns if booking.addOns is empty
+    addOnsArray = cost.addOns;
+  }
+  
+  const addOnsTotal = addOnsArray.reduce((sum, addon) => sum + (addon.price || 0), 0);
+  const servicesTotal = cost.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
+  
+  // Calculate correct total: package + services + add-ons + booking fee
+  const subtotal = packagePrice + servicesTotal + addOnsTotal;
+  const totalPrice = subtotal + bookingFee;
+  const balanceOnVisit = totalPrice - bookingFee;
+
+  const modalContent = `
+    <div style="max-width: 500px;">
+      <h2 style="margin-bottom: 1.5rem; color: var(--gray-900);">💰 Pricing Breakdown</h2>
+      
+      <div style="background: var(--gray-50); padding: 1.5rem; border-radius: var(--radius); margin-bottom: 1.5rem;">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1rem;">
+          <span style="color: var(--gray-700); font-weight: 500;">Booking ID:</span>
+          <span style="font-weight: 600; color: var(--gray-900);">${escapeHtml(typeof getBookingDisplayCode === 'function' ? getBookingDisplayCode(booking) : booking.id)}</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1rem;">
+          <span style="color: var(--gray-700); font-weight: 500;">Pet:</span>
+          <span style="font-weight: 600; color: var(--gray-900);">${escapeHtml(booking.petName)}</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem;">
+          <span style="color: var(--gray-700); font-weight: 500;">Package:</span>
+          <span style="font-weight: 600; color: var(--gray-900);">${escapeHtml(booking.packageName)}</span>
+        </div>
+      </div>
+
+      <div style="border-top: 2px solid var(--gray-200); padding-top: 1rem; margin-bottom: 1rem;">
+        <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--gray-900);">Cost Breakdown</h3>
+        
+        ${packagePrice > 0 ? `
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 0.75rem;">
+            <span style="color: var(--gray-700);">📦 Package:</span>
+            <span style="font-weight: 600; color: var(--gray-900);">${formatCurrency(packagePrice)}</span>
+          </div>
+        ` : ''}
+
+        ${servicesTotal > 0 ? `
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 0.75rem;">
+            <span style="color: var(--gray-700);">🛁 Single Services:</span>
+            <span style="font-weight: 600; color: var(--gray-900);">${formatCurrency(servicesTotal)}</span>
+          </div>
+        ` : ''}
+
+        ${addOnsArray.length > 0 ? `
+          <div style="margin-bottom: 0.75rem;">
+            <span style="color: var(--gray-700); font-weight: 500;">✨ Add-ons:</span>
+            ${addOnsArray.map(addon => `
+              <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-top: 0.5rem; margin-left: 1rem;">
+                <span style="color: var(--gray-600);">• ${escapeHtml(addon.label)}</span>
+                <span style="font-weight: 600; color: var(--gray-900);">${formatCurrency(addon.price)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--gray-300);">
+          <span style="color: var(--gray-700); font-weight: 600;">Subtotal:</span>
+          <span style="font-weight: 700; color: var(--gray-900); font-size: 1.1rem;">${formatCurrency(subtotal)}</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1rem; background: #fff3cd; padding: 0.75rem; border-radius: 0.25rem;">
+          <span style="color: #856404; font-weight: 500;">📌 Booking Fee (Deductible):</span>
+          <span style="font-weight: 600; color: #856404;">-${formatCurrency(bookingFee)}</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; background: #e8f5e9; padding: 1rem; border-radius: 0.25rem; border-left: 4px solid #2e7d32;">
+          <span style="color: #2e7d32; font-weight: 700; font-size: 1.1rem;">💰 Total Amount:</span>
+          <span style="font-weight: 700; color: #2e7d32; font-size: 1.2rem;">${formatCurrency(totalPrice)}</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-top: 1rem; background: #e3f2fd; padding: 0.75rem; border-radius: 0.25rem;">
+          <span style="color: #1565c0; font-weight: 600;">Balance to Pay:</span>
+          <span style="font-weight: 700; color: #1565c0;">${formatCurrency(balanceOnVisit)}</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.5rem; text-align: center;">
+        <button class="btn btn-primary" onclick="closeModal()" style="width: 100%;">Close</button>
+      </div>
+    </div>
+  `;
+
+  showModal(modalContent);
+}
+window.openCustomerPricingBreakdownModal = openCustomerPricingBreakdownModal;
+
+
+// Open spending details modal for customer
+async function openCustomerSpendingDetailsModal() {
+  let bookings = [];
+  try {
+    bookings = await getUserBookings();
+  } catch (e) {
+    console.warn('Failed to fetch bookings:', e);
+    return;
+  }
+
+  // Filter confirmed and completed bookings
+  const spendingBookings = bookings.filter(b => b.status === 'confirmed' || b.status === 'completed');
+
+  if (spendingBookings.length === 0) {
+    showModal(`
+      <div style="text-align: center; padding: 2rem;">
+        <h2 style="margin-bottom: 1rem;">💰 Spending Details</h2>
+        <p style="color: var(--gray-600);">No confirmed or completed bookings yet.</p>
+      </div>
+    `);
+    return;
+  }
+
+  // Calculate totals
+  let totalSpent = 0;
+  let totalPackages = 0;
+  let totalAddOns = 0;
+  let totalServices = 0;
+
+  const bookingDetails = spendingBookings.map(booking => {
+    const cost = booking.cost || {};
+    const packagePrice = cost.packagePrice || 0;
+    const addOnsTotal = booking.addOns?.reduce((sum, addon) => sum + (addon.price || 0), 0) || 0;
+    const servicesTotal = cost.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
+    const totalPrice = booking.totalPrice || (packagePrice + addOnsTotal + servicesTotal);
+
+    totalSpent += totalPrice;
+    totalPackages += packagePrice;
+    totalAddOns += addOnsTotal;
+    totalServices += servicesTotal;
+
+    return {
+      id: typeof getBookingDisplayCode === 'function' ? getBookingDisplayCode(booking) : booking.id,
+      pet: booking.petName,
+      package: booking.packageName,
+      packagePrice,
+      addOnsTotal,
+      servicesTotal,
+      totalPrice,
+      date: booking.date,
+      time: booking.time,
+      status: booking.status
+    };
+  });
+
+  const modalContent = `
+    <div style="max-width: 900px;">
+      <h2 style="margin-bottom: 1.5rem; color: var(--gray-900);">💰 Your Spending Details</h2>
+      
+      <!-- Summary Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        <div style="background: #e8f5e9; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #2e7d32;">
+          <div style="color: #2e7d32; font-size: 0.9rem; font-weight: 600;">Total Spent</div>
+          <div style="color: #2e7d32; font-size: 1.8rem; font-weight: 700; margin-top: 0.5rem;">${formatCurrency(totalSpent)}</div>
+        </div>
+        <div style="background: #e3f2fd; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #1976d2;">
+          <div style="color: #1565c0; font-size: 0.9rem; font-weight: 600;">Packages</div>
+          <div style="color: #1565c0; font-size: 1.8rem; font-weight: 700; margin-top: 0.5rem;">${formatCurrency(totalPackages)}</div>
+        </div>
+        <div style="background: #fff3e0; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #f57c00;">
+          <div style="color: #e65100; font-size: 0.9rem; font-weight: 600;">Add-ons</div>
+          <div style="color: #e65100; font-size: 1.8rem; font-weight: 700; margin-top: 0.5rem;">${formatCurrency(totalAddOns)}</div>
+        </div>
+        <div style="background: #f3e5f5; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #7b1fa2;">
+          <div style="color: #6a1b9a; font-size: 0.9rem; font-weight: 600;">Services</div>
+          <div style="color: #6a1b9a; font-size: 1.8rem; font-weight: 700; margin-top: 0.5rem;">${formatCurrency(totalServices)}</div>
+        </div>
+      </div>
+
+      <!-- Detailed Table -->
+      <div style="border-top: 2px solid var(--gray-200); padding-top: 1.5rem; margin-bottom: 1.5rem;">
+        <h3 style="margin-bottom: 1rem; color: var(--gray-900);">Booking Breakdown</h3>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+            <thead>
+              <tr style="background: var(--gray-100); border-bottom: 2px solid var(--gray-300);">
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Receipt</th>
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Pet</th>
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Package</th>
+                <th style="padding: 0.75rem; text-align: right; font-weight: 600;">Package</th>
+                <th style="padding: 0.75rem; text-align: right; font-weight: 600;">Add-ons</th>
+                <th style="padding: 0.75rem; text-align: right; font-weight: 600;">Services</th>
+                <th style="padding: 0.75rem; text-align: right; font-weight: 600;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${bookingDetails.map(b => `
+                <tr style="border-bottom: 1px solid var(--gray-200);">
+                  <td style="padding: 0.75rem; font-weight: 600; color: #2e7d32;">${escapeHtml(b.id)}</td>
+                  <td style="padding: 0.75rem;">${escapeHtml(b.pet)}</td>
+                  <td style="padding: 0.75rem;">${escapeHtml(b.package)}</td>
+                  <td style="padding: 0.75rem; text-align: right;">${formatCurrency(b.packagePrice)}</td>
+                  <td style="padding: 0.75rem; text-align: right; color: #f57c00; font-weight: 600;">${formatCurrency(b.addOnsTotal)}</td>
+                  <td style="padding: 0.75rem; text-align: right;">${formatCurrency(b.servicesTotal)}</td>
+                  <td style="padding: 0.75rem; text-align: right; font-weight: 700; color: #2e7d32;">${formatCurrency(b.totalPrice)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="closeModal()" style="width: 100%;">Close</button>
+      </div>
+    </div>
+  `;
+
+  showModal(modalContent);
+}
+window.openCustomerSpendingDetailsModal = openCustomerSpendingDetailsModal;
