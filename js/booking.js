@@ -1184,25 +1184,23 @@ async function renderBookingTimeSlots(date) {
     // e.g. 12pm end -> cutoff 11:30am
     // e.g. 3pm end -> cutoff 2:30pm
     // e.g. 6pm end -> cutoff 5:30pm
-
     let cutoffHour = endHour;
-    let cutoffMinute = 0;
+    let cutoffMinute = 30;
 
-    if (cutoffMinute === 0) {
+    // Subtract 30 minutes from the end time
+    if (cutoffMinute === 30) {
       cutoffHour -= 1;
-      cutoffMinute = 30;
-    } else {
-      cutoffMinute -= 30;
     }
 
     // Check if current time is past the cutoff
+    // If current time >= cutoff time, the slot is no longer available
     return currentHour > cutoffHour || (currentHour === cutoffHour && currentMinute >= cutoffMinute);
   }
 
   const timeSlotPromises = timeSlots.map(async time => {
-    const availableSlots = await getAvailableSlotsForTime(date, time);
-    const isSelected = selectedTime === time;
     const isPast = isTimeSlotPast(time);
+    const availableSlots = isPast ? 0 : await getAvailableSlotsForTime(date, time);
+    const isSelected = selectedTime === time;
     const isAvailable = availableSlots > 0 && !isPast;
 
     return `
