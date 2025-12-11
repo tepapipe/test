@@ -394,15 +394,6 @@ function setupBookingListeners() {
   bindTextAreaToData('vaccinationNotes', 'vaccinationNotes', true);
   bindTextAreaToData('bookingNotes', 'bookingNotes', true);
 
-  const addonToothbrush = document.getElementById('addonToothbrush');
-  if (addonToothbrush) {
-    addonToothbrush.addEventListener('change', () => toggleAddon('toothbrush', addonToothbrush.checked));
-  }
-  const addonDematting = document.getElementById('addonDematting');
-  if (addonDematting) {
-    addonDematting.addEventListener('change', () => toggleAddon('dematting', addonDematting.checked));
-  }
-
   const saveProfileToggle = document.getElementById('saveProfileToggle');
   if (saveProfileToggle) {
     bookingData.saveProfile = saveProfileToggle.checked;
@@ -471,17 +462,6 @@ function bindTextAreaToData(elementId, field, autoSave = false) {
       saveBookingDataToSession();
     }
   });
-}
-
-function toggleAddon(addonKey, enabled) {
-  if (enabled) {
-    if (!bookingData.addOns.includes(addonKey)) {
-      bookingData.addOns.push(addonKey);
-    }
-  } else {
-    bookingData.addOns = bookingData.addOns.filter(key => key !== addonKey);
-  }
-  updateSummary();
 }
 
 async function handleProfileLoad() {
@@ -592,16 +572,6 @@ function applyProfileToForm(profile = {}) {
     });
   }
 
-  // Select add-ons checkboxes
-  const toothbrush = document.getElementById('addonToothbrush');
-  if (toothbrush) {
-    toothbrush.checked = bookingData.addOns.includes('toothbrush');
-  }
-  const dematting = document.getElementById('addonDematting');
-  if (dematting) {
-    dematting.checked = bookingData.addOns.includes('dematting');
-  }
-
   updateSummary();
   enableNextButton();
   updateSingleServicePriceLabels();
@@ -623,11 +593,6 @@ function clearProfileForm() {
       bookingData[id] = '';
     }
   });
-  const toothbrush = document.getElementById('addonToothbrush');
-  if (toothbrush) toothbrush.checked = false;
-  const dematting = document.getElementById('addonDematting');
-  if (dematting) dematting.checked = false;
-  bookingData.addOns = [];
   updateSummary();
 }
 
@@ -1452,15 +1417,11 @@ async function updateSummary() {
       </div>
       <div class="summary-item" style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--gray-200); font-weight: 600;">
         <span class="summary-label">Total Amount:</span>
-        <span class="summary-value">${formatCurrency(costEstimate.totalAmount || (costEstimate.subtotal + costEstimate.bookingFee))}</span>
-      </div>
-      <div class="summary-item" style="font-size: 0.85rem; color: var(--gray-600);">
-        <span class="summary-label">Booking Fee (Deductible):</span>
-        <span class="summary-value">-${formatCurrency(costEstimate.bookingFee)}</span>
+        <span class="summary-value">${formatCurrency(costEstimate.totalAmount || costEstimate.subtotal)}</span>
       </div>
       <div class="summary-item" style="margin-top: 0.5rem; padding-top: 0.5rem; font-weight: 600; color: var(--success-600);">
         <span class="summary-label">Amount to Pay:</span>
-        <span class="summary-value">${formatCurrency((costEstimate.totalAmount || (costEstimate.subtotal + costEstimate.bookingFee)) - costEstimate.bookingFee)}</span>
+        <span class="summary-value">${formatCurrency((costEstimate.totalAmount || costEstimate.subtotal) - costEstimate.bookingFee)}</span>
       </div>
     `;
     if (isSingleServicePackage() && (!bookingData.petWeight || costEstimate.services?.some(service => service.requiresWeight))) {
@@ -1896,16 +1857,6 @@ function restoreBookingFormData(data) {
     if (radio) radio.checked = true;
   }
 
-  if (data.addOns && Array.isArray(data.addOns)) {
-    if (data.addOns.includes('toothbrush')) {
-      const el = document.getElementById('addonToothbrush');
-      if (el) el.checked = true;
-    }
-    if (data.addOns.includes('dematting')) {
-      const el = document.getElementById('addonDematting');
-      if (el) el.checked = true;
-    }
-  }
 }
 
 // ============================================
