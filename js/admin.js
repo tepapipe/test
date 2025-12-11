@@ -4033,31 +4033,25 @@ function recalculateBookingTotal(booking) {
   // BUT, to be safe, if we are editing it, we should re-derive base price from package + add-ons?
   // Existing system: booking.totalPrice OR booking.cost.subtotal.
 
-  // Let's assume booking.basePrice exists. If not, try to init it from current total minus existing addons (risky).
-  // Better: Check if we have a stored base price.
-
-  let basePrice = 0;
-
-  // If we haven't stored a 'basePrice' explicitly, we might default to existing total if no add-ons were there.
-  // Or look up package price.
-  // For simplicity, let's use the 'cost.subtotal' as the authority if it exists, BUT we need to subtract previous add-ons if we are just adding new ones?
-  // Actually, simplest is:
-  // New Total = (Base Package Price) + (Sum of Add-ons).
-  // We need to fetch the package price again to be sure, or store it.
-
-  // Strategy:
-  // 1. Try to find base price.
+  // Initialize basePrice from current total if not already set
   if (booking.basePrice === undefined) {
     // Initialize basePrice from current total (assuming no add-ons yet or they are included).
     // Since we are just starting to use this feature, assume current total IS the base price (minus any legacy add-ons if they exist).
     // However, booking object structure might change.
     // Let's trust totalAmount for now as base if we don't have basePrice.
-    let currentTotal = booking.totalPrice || (booking.cost ? booking.cost.subtotal : 0);
+    let currentTotal = parseFloat(booking.totalPrice) || (booking.cost ? parseFloat(booking.cost.subtotal) : 0) || 0;
     booking.basePrice = currentTotal;
   }
 
-  const addOnsTotal = booking.addOns.reduce((sum, a) => sum + (a.price || 0), 0);
-  const newTotal = booking.basePrice + addOnsTotal;
+  const basePrice = parseFloat(booking.basePrice) || 0;
+  const addOnsTotal = (booking.addOns || []).reduce((sum, a) => sum + (parseFloat(a.price) || 0), 0);
+  const newTotal = basePrice + addOnsTotal;
+
+  // Validate result is a number
+  if (isNaN(newTotal)) {
+    console.error('Error calculating total price for booking', booking.id);
+    return;
+  }
 
   booking.totalPrice = newTotal;
   if (booking.cost) {
@@ -4068,7 +4062,7 @@ function recalculateBookingTotal(booking) {
     // let's assume deposit doesn't change after booking.
     // Balance = Total - Deposit.
     // usage: booking.cost.deposit (if exists).
-    const deposit = booking.cost.deposit || 0;
+    const deposit = parseFloat(booking.cost.deposit) || 0;
     booking.cost.balanceOnVisit = newTotal - deposit;
   }
 }
@@ -4881,17 +4875,29 @@ window.handleAddAddonToBooking = async function (bookingId) {
   }
 
   // Add the new add-on
+  const addonPrice = parseFloat(price) || 0;
+  if (isNaN(addonPrice)) {
+    alert('Invalid add-on price');
+    return;
+  }
+  
   booking.addOns.push({
     id: packageId,
     name: addonPkg.name + (tierLabel !== 'Base' ? ` - ${tierLabel}` : ''),
-    price: parseFloat(price)
+    price: addonPrice
   });
 
-  // Recalculate total
-  const packagePrice = booking.cost?.packagePrice || 0;
-  const servicesTotal = booking.cost?.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
-  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (addon.price || 0), 0);
+  // Recalculate total - ensure all values are valid numbers
+  const packagePrice = parseFloat(booking.cost?.packagePrice) || 0;
+  const servicesTotal = (booking.cost?.services || []).reduce((sum, service) => sum + (parseFloat(service.price) || 0), 0);
+  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (parseFloat(addon.price) || 0), 0);
   const newSubtotal = packagePrice + servicesTotal + addOnsTotal;
+  
+  // Validate the result is a number
+  if (isNaN(newSubtotal)) {
+    alert('Error calculating total price');
+    return;
+  }
   
   // Update cost object
   if (!booking.cost) booking.cost = {};
@@ -4934,11 +4940,17 @@ window.handleRemoveAddonFromBooking = async function (bookingId, addonIndex) {
   // Remove the add-on
   booking.addOns.splice(addonIndex, 1);
 
-  // Recalculate total
-  const packagePrice = booking.cost?.packagePrice || 0;
-  const servicesTotal = booking.cost?.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
-  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (addon.price || 0), 0);
+  // Recalculate total - ensure all values are valid numbers
+  const packagePrice = parseFloat(booking.cost?.packagePrice) || 0;
+  const servicesTotal = (booking.cost?.services || []).reduce((sum, service) => sum + (parseFloat(service.price) || 0), 0);
+  const addOnsTotal = booking.addOns.reduce((sum, addon) => sum + (parseFloat(addon.price) || 0), 0);
   const newSubtotal = packagePrice + servicesTotal + addOnsTotal;
+  
+  // Validate the result is a number
+  if (isNaN(newSubtotal)) {
+    alert('Error calculating total price');
+    return;
+  }
   
   // Update cost object
   if (!booking.cost) booking.cost = {};
@@ -5645,11 +5657,11 @@ async function openRevenueDetailsModal() {
 
   const bookingDetails = revenueBookings.map(booking => {
     const cost = booking.cost || {};
-    const packagePrice = cost.packagePrice || 0;
-    const addOnsTotal = booking.addOns?.reduce((sum, addon) => sum + (addon.price || 0), 0) || 0;
-    const servicesTotal = cost.services?.reduce((sum, service) => sum + (service.price || 0), 0) || 0;
-    const bookingFee = cost.bookingFee || 100;
-    const totalPrice = booking.totalPrice || (packagePrice + addOnsTotal + servicesTotal + bookingFee);
+    const packagePrice = parseFloat(cost.packagePrice) || 0;
+    const addOnsTotal = (booking.addOns || []).reduce((sum, addon) => sum + (parseFloat(addon.price) || 0), 0);
+    const servicesTotal = (cost.services || []).reduce((sum, service) => sum + (parseFloat(service.price) || 0), 0);
+    const bookingFee = parseFloat(cost.bookingFee) || 100;
+    const totalPrice = parseFloat(booking.totalPrice) || (packagePrice + addOnsTotal + servicesTotal);
 
     totalRevenue += totalPrice;
     totalPackages += packagePrice;
