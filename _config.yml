@@ -1,0 +1,33 @@
+# _config.yml for okla
+
+# Site settings
+title: "Okla"
+description: "Static site for Okla project"
+# Your GitHub username and repo name
+repository: "tepapipe/okla"
+
+# URL / base settings — update if using custom domain
+url: "https://tepapipe.github.io"
+baseurl: "/okla"  # if you serve as a project page; set to "" if user/org page or custom domain
+
+# Theme (a simple built-in theme)
+theme: jekyll-theme-minimal
+
+# Optional: plugins for extra features
+plugins:
+  - jekyll-seo-tag
+  - jekyll-relative-links
+
+# Exclude files/folders from build (optional)
+exclude:
+  - README.md
+  - node_modules
+  - .gitignore
+
+# Markdown / syntax highlighting settings
+markdown: kramdown
+highlighter: rouge
+
+# (Optional) build settings
+safe: true
+incremental: false

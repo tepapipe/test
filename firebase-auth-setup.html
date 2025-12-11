@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firebase Auth Setup - BestBuddies</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .status {
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .status.info {
+      background: #e3f2fd;
+      color: #1976d2;
+      border-left: 4px solid #1976d2;
+    }
+    .status.success {
+      background: #e8f5e9;
+      color: #388e3c;
+      border-left: 4px solid #388e3c;
+    }
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+      border-left: 4px solid #c62828;
+    }
+    button {
+      background: #1976d2;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+    button:hover {
+      background: #1565c0;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #output {
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .account-item {
+      padding: 10px;
+      margin: 5px 0;
+      background: white;
+      border-left: 3px solid #ddd;
+      border-radius: 2px;
+    }
+    .account-item.created {
+      border-left-color: #4caf50;
+      background: #f1f8f6;
+    }
+    .account-item.failed {
+      border-left-color: #f44336;
+      background: #fef5f5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Firebase Auth Setup</h1>
+    <p>This tool will create Firebase Auth accounts for all users in your database.</p>
+    
+    <div class="status info">
+      <strong>ℹ️ Instructions:</strong>
+      <ol>
+        <li>Make sure you're logged into Firebase Console in another tab</li>
+        <li>Click "Create Auth Accounts" below</li>
+        <li>Wait for all accounts to be created</li>
+        <li>Then you can log in with any account</li>
+      </ol>
+    </div>
+
+    <button onclick="createAuthAccounts()" id="createBtn">Create Auth Accounts</button>
+    <button onclick="clearOutput()" id="clearBtn">Clear Output</button>
+
+    <div id="output"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
+
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyBFIRv4kufQt_cAJ0nLTV2No_zsSOFFq_w",
+      authDomain: "bestbuddiespetshop.firebaseapp.com",
+      projectId: "bestbuddiespetshop",
+      storageBucket: "bestbuddiespetshop.firebasestorage.app",
+      messagingSenderId: "954635072456",
+      appId: "1:954635072456:web:696796ead82c6dc04546fd",
+      measurementId: "G-GSV3XX38CG"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    // Accounts to create
+    const accounts = [
+      { email: "sam@gmail.com", password: "qwerty", name: "Sam", role: "groomer" },
+      { email: "jinold@gmail.com", password: "qwerty", name: "Jinold", role: "groomer" },
+      { email: "jom@gmail.com", password: "qwerty", name: "Jom", role: "groomer" },
+      { email: "botchoy@gmail.com", password: "qwerty", name: "Botchoy", role: "groomer" },
+      { email: "ejay@gmail.com", password: "qwerty", name: "Ejay", role: "groomer" },
+      { email: "qwerty@gmail.com", password: "qwerty", name: "Customer Account", role: "customer" },
+      { email: "admin@gmail.com", password: "qwerty", name: "Admin User", role: "admin" }
+    ];
+
+    window.createAuthAccounts = async function() {
+      const btn = document.getElementById('createBtn');
+      const output = document.getElementById('output');
+      
+      btn.disabled = true;
+      output.innerHTML = '<div class="status info">Starting account creation...</div>';
+
+      let created = 0;
+      let failed = 0;
+
+      for (const account of accounts) {
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, account.email, account.password);
+          const html = `<div class="account-item created">
+            ✅ <strong>${account.email}</strong> (${account.role}) - Created successfully
+          </div>`;
+          output.innerHTML += html;
+          created++;
+        } catch (error) {
+          let errorMsg = error.message;
+          if (error.code === 'auth/email-already-in-use') {
+            errorMsg = 'Email already exists';
+          } else if (error.code === 'auth/weak-password') {
+            errorMsg = 'Password too weak';
+          }
+          const html = `<div class="account-item failed">
+            ❌ <strong>${account.email}</strong> - ${errorMsg}
+          </div>`;
+          output.innerHTML += html;
+          failed++;
+        }
+        // Small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      const summary = `<div class="status success">
+        <strong>✅ Complete!</strong><br>
+        Created: ${created} accounts<br>
+        Failed: ${failed} accounts<br>
+        <br>
+        You can now log in with any of these accounts!
+      </div>`;
+      output.innerHTML += summary;
+      btn.disabled = false;
+    };
+
+    window.clearOutput = function() {
+      document.getElementById('output').innerHTML = '';
+    };
+  </script>
+</body>
+</html>
